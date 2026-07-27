@@ -1,0 +1,35 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: geo-demo-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build: ./backend
+    container_name: geo-demo-backend
+
+  gateway:
+    build: ./gateway
+    container_name: geo-demo-gateway
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    ports:
+      - "8080:8080"
+
+  admin-api:
+    build: ./admin-api
+    container_name: geo-demo-admin-api
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "4000:4000"

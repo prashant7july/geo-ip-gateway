@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Gateway Access Control — Admin</title>
+<style>
+  :root {
+    --bg: #0f1420;
+    --panel: #161d2e;
+    --panel-border: #262f45;
+    --text: #e6e9f0;
+    --muted: #8a92a6;
+    --accent: #5b8cff;
+    --green: #34d399;
+    --red: #f87171;
+    --amber: #fbbf24;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+  }
+  header {
+    padding: 20px 28px;
+    border-bottom: 1px solid var(--panel-border);
+  }
+  header h1 {
+    margin: 0 0 4px 0;
+    font-size: 18px;
+    font-weight: 600;
+  }
+  header p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    padding: 24px 28px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 18px 20px;
+  }
+  .panel h2 {
+    margin: 0 0 14px 0;
+    font-size: 15px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel h2 .badge {
+    font-size: 11px;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #22314f;
+    color: var(--muted);
+  }
+  .row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  select, input[type=text], input[type=number] {
+    background: #0c1220;
+    border: 1px solid var(--panel-border);
+    color: var(--text);
+    padding: 7px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+  }
+  input[type=text] { flex: 1; min-width: 140px; }
+  button {
+    background: var(--accent);
+    color: white;
+    border: none;
+    padding: 7px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  button.secondary {
+    background: #22314f;
+    color: var(--text);
+  }
+  button.danger {
+    background: transparent;
+    color: var(--red);
+    padding: 3px 8px;
+    font-size: 12px;
+  }
+  button:hover { opacity: 0.9; }
+  ul.list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 160px;
+    overflow-y: auto;
+  }
+  ul.list li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #0c1220;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    font-size: 12.5px;
+  }
+  .empty { color: var(--muted); font-size: 12.5px; padding: 6px 0; }
+  .mode-label { color: var(--muted); font-size: 12.5px; margin-right: 4px; }
+  .days {
+    display: flex;
+    gap: 4px;
+    margin: 8px 0;
+  }
+  .day-chip {
+    width: 34px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #0c1220;
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    font-size: 11px;
+    cursor: pointer;
+    color: var(--muted);
+  }
+  .day-chip.active {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+  }
+  .hours-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+  .hours-row input { width: 64px; }
+  .toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .status-line { font-size: 12px; color: var(--muted); margin-top: 8px; min-height: 16px; }
+  .status-line.ok { color: var(--green); }
+  .status-line.err { color: var(--red); }
+  .test-result {
+    margin-top: 12px;
+    padding: 12px;
+    border-radius: 8px;
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    font-size: 12.5px;
+    white-space: pre-wrap;
+    border: 1px solid var(--panel-border);
+    background: #0c1220;
+  }
+  .test-result.allow { border-color: var(--green); }
+  .test-result.deny { border-color: var(--red); }
+  .full-width { grid-column: 1 / -1; }
+  .footer-note {
+    color: var(--muted);
+    font-size: 12px;
+    padding: 4px 0 0 0;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Gateway Access Control</h1>
+  <p>Configures rules enforced at the gateway (OpenResty/Lua) — this UI is optional; enforcement never depends on it being open.</p>
+</header>
+
+<div class="layout">
+
+  <!-- IP RULES -->
+  <div class="panel">
+    <h2>IP Rules <span class="badge" id="ip-mode-badge">off</span></h2>
+
+    <div class="row">
+      <span class="mode-label">Mode:</span>
+      <select id="ip-mode-select">
+        <option value="off">Off</option>
+        <option value="allowlist">Allowlist</option>
+        <option value="blocklist">Blocklist</option>
+      </select>
+      <button onclick="setIpMode()">Apply</button>
+    </div>
+
+    <div class="row">
+      <input type="text" id="ip-allow-input" placeholder="IP or CIDR, e.g. 203.0.113.9" />
+      <button onclick="addIp('allow')">Add to allowlist</button>
+    </div>
+    <ul class="list" id="ip-allow-list"></ul>
+
+    <div class="row" style="margin-top:12px;">
+      <input type="text" id="ip-block-input" placeholder="IP or CIDR, e.g. 203.0.113.9" />
+      <button onclick="addIp('block')">Add to blocklist</button>
+    </div>
+    <ul class="list" id="ip-block-list"></ul>
+
+    <div class="status-line" id="ip-status"></div>
+  </div>
+
+  <!-- GEO RULES -->
+  <div class="panel">
+    <h2>GeoIP Rules <span class="badge" id="geo-mode-badge">off</span></h2>
+
+    <div class="row">
+      <span class="mode-label">Mode:</span>
+      <select id="geo-mode-select">
+        <option value="off">Off</option>
+        <option value="allowlist">Allowlist</option>
+        <option value="blocklist">Blocklist</option>
+      </select>
+      <button onclick="setGeoMode()">Apply</button>
+    </div>
+
+    <div class="row">
+      <input type="text" id="geo-allow-input" placeholder="ISO country code, e.g. US" maxlength="2" style="text-transform:uppercase" />
+      <button onclick="addGeo('allow')">Add to allowlist</button>
+    </div>
+    <ul class="list" id="geo-allow-list"></ul>
+
+    <div class="row" style="margin-top:12px;">
+      <input type="text" id="geo-block-input" placeholder="ISO country code, e.g. CN" maxlength="2" style="text-transform:uppercase" />
+      <button onclick="addGeo('block')">Add to blocklist</button>
+    </div>
+    <ul class="list" id="geo-block-list"></ul>
+
+    <div class="status-line" id="geo-status"></div>
+  </div>
+
+  <!-- EXCEPTIONS -->
+  <div class="panel">
+    <h2>Exceptions <span class="badge">always allowed</span></h2>
+    <p class="footer-note" style="margin-bottom:10px;">Overrides any block/allow rule and any schedule — use for known-safe partners, health checks, office IPs, etc.</p>
+
+    <div class="row">
+      <input type="text" id="ip-exception-input" placeholder="IP to always allow" />
+      <button onclick="addException('ip')">Add IP exception</button>
+    </div>
+    <ul class="list" id="ip-exception-list"></ul>
+
+    <div class="row" style="margin-top:12px;">
+      <input type="text" id="geo-exception-input" placeholder="Country code to always allow" maxlength="2" style="text-transform:uppercase" />
+      <button onclick="addException('geo')">Add country exception</button>
+    </div>
+    <ul class="list" id="geo-exception-list"></ul>
+
+    <div class="status-line" id="exception-status"></div>
+  </div>
+
+  <!-- SCHEDULES -->
+  <div class="panel">
+    <h2>Schedules <span class="badge">UTC</span></h2>
+    <p class="footer-note" style="margin-bottom:10px;">Restricts WHEN the mode above is enforced. Outside the window, requests are always allowed. Leave disabled for always-on enforcement.</p>
+
+    <strong style="font-size:12.5px;">IP schedule</strong>
+    <div class="toggle">
+      <input type="checkbox" id="ip-schedule-enabled" />
+      <label for="ip-schedule-enabled">Enabled</label>
+    </div>
+    <div class="days" id="ip-schedule-days"></div>
+    <div class="hours-row">
+      <label>Start</label><input type="number" id="ip-schedule-start" min="0" max="23" value="0" />
+      <label>End</label><input type="number" id="ip-schedule-end" min="0" max="23" value="24" />
+      <button onclick="saveSchedule('ip')">Save</button>
+    </div>
+
+    <hr style="border-color: var(--panel-border); margin: 14px 0;" />
+
+    <strong style="font-size:12.5px;">Geo schedule</strong>
+    <div class="toggle">
+      <input type="checkbox" id="geo-schedule-enabled" />
+      <label for="geo-schedule-enabled">Enabled</label>
+    </div>
+    <div class="days" id="geo-schedule-days"></div>
+    <div class="hours-row">
+      <label>Start</label><input type="number" id="geo-schedule-start" min="0" max="23" value="0" />
+      <label>End</label><input type="number" id="geo-schedule-end" min="0" max="23" value="24" />
+      <button onclick="saveSchedule('geo')">Save</button>
+    </div>
+
+    <div class="status-line" id="schedule-status"></div>
+  </div>
+
+  <!-- LIVE TEST -->
+  <div class="panel full-width">
+    <h2>Live Test</h2>
+    <p class="footer-note" style="margin-bottom:10px;">Sends a real request through the gateway with the given IP (via the test-only <code>X-Test-Client-IP</code> header) and shows the actual enforcement result.</p>
+    <div class="row">
+      <input type="text" id="test-ip-input" placeholder="IP to simulate, e.g. 81.2.69.142" />
+      <button onclick="runTest()">Test request</button>
+    </div>
+    <div id="test-result"></div>
+  </div>
+
+</div>
+
+<script>
+const DAY_LABELS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+
+function api(path, opts) {
+  return fetch('/api' + path, opts).then(async (r) => {
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(body.error || ('HTTP ' + r.status));
+    return body;
+  });
+}
+
+function renderList(el, items, kind, category) {
+  el.innerHTML = '';
+  if (!items || items.length === 0) {
+    el.innerHTML = '<li class="empty">none</li>';
+    return;
+  }
+  items.forEach((item) => {
+    const li = document.createElement('li');
+    li.innerHTML = `<span>${item}</span>`;
+    const btn = document.createElement('button');
+    btn.className = 'danger';
+    btn.textContent = 'remove';
+    btn.onclick = () => removeItem(kind, category, item);
+    li.appendChild(btn);
+    el.appendChild(li);
+  });
+}
+
+function buildDayChips(containerId, selectedDays) {
+  const el = document.getElementById(containerId);
+  el.innerHTML = '';
+  for (let i = 1; i <= 7; i++) {
+    const chip = document.createElement('div');
+    chip.className = 'day-chip' + (selectedDays.includes(i) ? ' active' : '');
+    chip.textContent = DAY_LABELS[i - 1];
+    chip.dataset.day = i;
+    chip.onclick = () => chip.classList.toggle('active');
+    el.appendChild(chip);
+  }
+}
+
+function getSelectedDays(containerId) {
+  const chips = document.querySelectorAll('#' + containerId + ' .day-chip.active');
+  return Array.from(chips).map((c) => Number(c.dataset.day));
+}
+
+async function loadRules() {
+  const rules = await api('/rules');
+
+  document.getElementById('ip-mode-badge').textContent = rules.ip_mode;
+  document.getElementById('ip-mode-select').value = rules.ip_mode;
+  document.getElementById('geo-mode-badge').textContent = rules.geo_mode;
+  document.getElementById('geo-mode-select').value = rules.geo_mode;
+
+  renderList(document.getElementById('ip-allow-list'), rules.ip_allow, 'ip', 'allow');
+  renderList(document.getElementById('ip-block-list'), rules.ip_block, 'ip', 'block');
+  renderList(document.getElementById('geo-allow-list'), rules.geo_allow, 'geo', 'allow');
+  renderList(document.getElementById('geo-block-list'), rules.geo_block, 'geo', 'block');
+  renderList(document.getElementById('ip-exception-list'), rules.ip_exception, 'ip', 'exception');
+  renderList(document.getElementById('geo-exception-list'), rules.geo_exception, 'geo', 'exception');
+
+  const ipSched = rules.ip_schedule || { enabled: false };
+  document.getElementById('ip-schedule-enabled').checked = !!ipSched.enabled;
+  document.getElementById('ip-schedule-start').value = ipSched.start_hour ?? 0;
+  document.getElementById('ip-schedule-end').value = ipSched.end_hour ?? 24;
+  buildDayChips('ip-schedule-days', ipSched.days || []);
+
+  const geoSched = rules.geo_schedule || { enabled: false };
+  document.getElementById('geo-schedule-enabled').checked = !!geoSched.enabled;
+  document.getElementById('geo-schedule-start').value = geoSched.start_hour ?? 0;
+  document.getElementById('geo-schedule-end').value = geoSched.end_hour ?? 24;
+  buildDayChips('geo-schedule-days', geoSched.days || []);
+}
+
+function flash(elId, msg, ok) {
+  const el = document.getElementById(elId);
+  el.textContent = msg;
+  el.className = 'status-line ' + (ok ? 'ok' : 'err');
+  setTimeout(() => { el.textContent = ''; el.className = 'status-line'; }, 3000);
+}
+
+async function setIpMode() {
+  const mode = document.getElementById('ip-mode-select').value;
+  try {
+    await api('/ip/mode', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({mode}) });
+    flash('ip-status', 'IP mode set to ' + mode, true);
+    loadRules();
+  } catch (e) { flash('ip-status', e.message, false); }
+}
+
+async function setGeoMode() {
+  const mode = document.getElementById('geo-mode-select').value;
+  try {
+    await api('/geo/mode', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({mode}) });
+    flash('geo-status', 'Geo mode set to ' + mode, true);
+    loadRules();
+  } catch (e) { flash('geo-status', e.message, false); }
+}
+
+async function addIp(category) {
+  const inputId = 'ip-' + category + '-input';
+  const ip = document.getElementById(inputId).value.trim();
+  if (!ip) return;
+  try {
+    await api('/ip/' + category, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ip}) });
+    document.getElementById(inputId).value = '';
+    flash('ip-status', `Added ${ip} to ${category}`, true);
+    loadRules();
+  } catch (e) { flash('ip-status', e.message, false); }
+}
+
+async function addGeo(category) {
+  const inputId = 'geo-' + category + '-input';
+  const country = document.getElementById(inputId).value.trim().toUpperCase();
+  if (!country) return;
+  try {
+    await api('/geo/' + category, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({country}) });
+    document.getElementById(inputId).value = '';
+    flash('geo-status', `Added ${country} to ${category}`, true);
+    loadRules();
+  } catch (e) { flash('geo-status', e.message, false); }
+}
+
+async function addException(kind) {
+  const inputId = kind + '-exception-input';
+  const raw = document.getElementById(inputId).value.trim();
+  if (!raw) return;
+  const value = kind === 'geo' ? raw.toUpperCase() : raw;
+  const key = kind === 'geo' ? 'country' : 'ip';
+  try {
+    await api(`/${kind}/exception`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({[key]: value}) });
+    document.getElementById(inputId).value = '';
+    flash('exception-status', `Added exception: ${value}`, true);
+    loadRules();
+  } catch (e) { flash('exception-status', e.message, false); }
+}
+
+async function removeItem(kind, category, value) {
+  try {
+    await api(`/${kind}/${category}/${encodeURIComponent(value)}`, { method: 'DELETE' });
+    loadRules();
+  } catch (e) {
+    const target = category === 'exception' ? 'exception-status' : (kind === 'ip' ? 'ip-status' : 'geo-status');
+    flash(target, e.message, false);
+  }
+}
+
+async function saveSchedule(kind) {
+  const schedule = {
+    enabled: document.getElementById(kind + '-schedule-enabled').checked,
+    days: getSelectedDays(kind + '-schedule-days'),
+    start_hour: Number(document.getElementById(kind + '-schedule-start').value),
+    end_hour: Number(document.getElementById(kind + '-schedule-end').value),
+  };
+  try {
+    await api(`/${kind}/schedule`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(schedule) });
+    flash('schedule-status', `${kind} schedule saved`, true);
+    loadRules();
+  } catch (e) { flash('schedule-status', e.message, false); }
+}
+
+async function runTest() {
+  const ip = document.getElementById('test-ip-input').value.trim();
+  const resultEl = document.getElementById('test-result');
+  if (!ip) return;
+  resultEl.innerHTML = '<div class="test-result">Testing…</div>';
+  try {
+    const result = await api('/test', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ip}) });
+    const allowed = result.status === 200;
+    resultEl.innerHTML = `<div class="test-result ${allowed ? 'allow' : 'deny'}">` +
+      `HTTP ${result.status} — ${allowed ? 'ALLOWED' : 'DENIED'}\n` +
+      JSON.stringify(result.body, null, 2) +
+      `</div>`;
+  } catch (e) {
+    resultEl.innerHTML = `<div class="test-result deny">Error: ${e.message}</div>`;
+  }
+}
+
+loadRules();
+setInterval(loadRules, 10000);
+</script>
+
+</body>
+</html>
