@@ -699,3 +699,13 @@ Share the output, and I can tell you:
 * the exact package (if any) to install for your Linux distribution,
 * and the minimal configuration changes needed for your environment.
 
+---
+
+# proxy_set_header X-Real-IP $remote_addr;
+* [geo-checker](https://github.com/yurymuski/geo-checker)
+
+```nginx
+proxy_set_header X-Real-IP $remote_addr;
+```
+**does not restrict anything.** It only sends the client's IP address to your application.
+
