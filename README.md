@@ -170,3 +170,72 @@ entirely if outside the active window) → mode check (allow/block).
 6. **Put a real WAF/CDN in front of this** (Cloudflare, AWS WAF) for
    DDoS/bot mitigation — this gateway is the tenant-configurable policy
    layer, not a replacement for edge-level protection.
+
+---
+
+# Option 1 (Recommended): Restrict in NGINX
+
+```text
+Internet
+      │
+      ▼
+Host NGINX (GeoIP)
+      │
+      ├── Block USA
+      ├── Block China
+      └── Allow India
+            │
+            ▼
+Docker App :8012
+```
+
+---
+
+# Option 2 (Recommended): Your Architecture
+
+```
+Internet
+      │
+      ▼
+NGINX (Host EC2)
+      │
+      │  X-Real-IP: 103.xx.xx.xx
+      ▼
+Docker App (8012)
+      │
+      ├── GeoLite2-City.mmdb
+      ├── Lookup IP
+      ├── Country = IN ?
+      └── Allow / Deny
+```
+
+# Option 3
+
+```
+Internet
+   │
+   ▼
+NGINX (host EC2, port 80/443)  ← unchanged, still your public entry point
+   │
+   │  proxy_pass → 127.0.0.1:8080   (instead of straight to your app)
+   ▼
+geo-ip-gateway container (OpenResty, port 8080, docker)
+   │  checks IP/GeoIP rules via access_control.lua + Redis
+   ▼
+your frontend/backend (host EC2, non-docker, e.g. port 8012/3000)
+```
+
+# Option 4
+
+```
+Internet
+   │
+   ▼
+NGINX (host)
+   │
+   ├── auth_request → geo-ip-gateway "/check" (subrequest, no body)
+   │        200 = country OK        403 = country blocked
+   │
+   ├── if 200 → proxy_pass → Front/Backend (host, non-docker)
+   └── if 403 → return 403, request never reaches Front/Backend
+```
