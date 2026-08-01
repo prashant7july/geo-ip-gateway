@@ -239,3 +239,463 @@ NGINX (host)
    ├── if 200 → proxy_pass → Front/Backend (host, non-docker)
    └── if 403 → return 403, request never reaches Front/Backend
 ```
+
+---
+
+# Option 1 and Option 2
+Yes, but there is one important distinction.
+
+The line:
+
+```nginx
+proxy_set_header X-Real-IP $remote_addr;
+```
+
+**does not restrict anything.** It only sends the client's IP address to your application.
+
+The GeoLite2 database inside your Docker container:
+
+```text
+/usr/share/GeoIP/GeoLite2-City.mmdb
+```
+
+is used **by the application**, not by NGINX.
+
+So you have two options.
+
+---
+
+# Option 1 (Recommended): Restrict in NGINX
+
+```text
+Internet
+      │
+      ▼
+Host NGINX (GeoIP)
+      │
+      ├── Block USA
+      ├── Block China
+      └── Allow India
+            │
+            ▼
+Docker App :8012
+```
+
+In this case, NGINX **must have its own** GeoLite2 database.
+
+Example:
+
+```text
+/etc/nginx/GeoLite2-Country.mmdb
+```
+
+NGINX configuration:
+
+```nginx
+geoip2 /etc/nginx/GeoLite2-Country.mmdb {
+    auto_reload 1h;
+
+    $geoip2_country_code country iso_code;
+}
+```
+
+Then:
+
+```nginx
+location / {
+
+    if ($geoip2_country_code != "IN") {
+        return 403;
+    }
+
+    proxy_pass http://127.0.0.1:8012;
+
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
+```
+
+This is the **best approach** because blocked requests never reach your application.
+
+---
+
+# Option 2: Restrict in the Application
+
+Here, your Docker application uses:
+
+```text
+/usr/share/GeoIP/GeoLite2-City.mmdb
+```
+
+NGINX simply forwards the request:
+
+```nginx
+location / {
+
+    proxy_pass http://127.0.0.1:8012;
+
+    proxy_set_header X-Real-IP $remote_addr;
+}
+```
+
+Then your application reads:
+
+```
+X-Real-IP
+```
+
+looks up that IP in:
+
+```
+/usr/share/GeoIP/GeoLite2-City.mmdb
+```
+
+and decides whether to allow or deny the request.
+
+This also works, but every request reaches your application first.
+
+---
+
+# Your Architecture
+
+```
+Internet
+      │
+      ▼
+NGINX (Host EC2)
+      │
+      │  X-Real-IP: 103.xx.xx.xx
+      ▼
+Docker App (8012)
+      │
+      ├── GeoLite2-City.mmdb
+      ├── Lookup IP
+      ├── Country = IN ?
+      └── Allow / Deny
+```
+
+This architecture is perfectly valid.
+
+---
+
+# Can `proxy_set_header X-Real-IP $remote_addr;` itself restrict access?
+
+**No.**
+
+This directive:
+
+```nginx
+proxy_set_header X-Real-IP $remote_addr;
+```
+
+only creates an HTTP header such as:
+
+```
+X-Real-IP: 103.25.15.90
+```
+
+It **does not**:
+
+* ❌ block countries
+* ❌ allow countries
+* ❌ perform GeoIP lookups
+* ❌ apply firewall rules
+
+It simply passes the client's IP to the backend.
+
+---
+
+## For your project
+
+Since you mentioned earlier that:
+
+* NGINX is already installed on the EC2 host (outside Docker),
+* you have both a frontend and backend,
+* and you're planning GeoIP/IP restrictions,
+
+I recommend doing the GeoIP lookup and restriction **in NGINX**. It's faster, more secure, and prevents unwanted traffic from ever reaching your Docker containers. The application's GeoLite2 database can still be kept if the application needs location information for analytics or business logic, but it shouldn't be the first line of defense.
+
+---
+
+# Option 1
+
+Since your architecture is:
+
+```text
+Internet
+      │
+      ▼
+NGINX (Host EC2)
+      │
+      ▼
+Docker App (127.0.0.1:8012)
+```
+
+the ideal approach is to let **NGINX handle GeoIP** and only forward allowed requests to your Docker application.
+
+---
+
+# Step 1: Check if NGINX supports GeoIP2
+
+Run:
+
+```bash
+nginx -V 2>&1 | grep geoip
+```
+
+If you see something like:
+
+```text
+--add-dynamic-module=ngx_http_geoip2_module
+```
+
+or
+
+```text
+ngx_http_geoip2_module
+```
+
+you're ready.
+
+If nothing is returned, you'll need to install the GeoIP2 module (instructions depend on your OS).
+
+---
+
+# Step 2: Download the GeoLite2 Database
+
+Create a directory:
+
+```bash
+sudo mkdir -p /etc/nginx/geoip
+```
+
+Copy your database there:
+
+```text
+/etc/nginx/geoip/GeoLite2-Country.mmdb
+```
+
+or
+
+```text
+/etc/nginx/geoip/GeoLite2-City.mmdb
+```
+
+> You can use the same MaxMind database that your application uses, but NGINX must be able to read it from the host filesystem.
+
+---
+
+# Step 3: Load the GeoIP2 Module
+
+If it's a dynamic module, add this near the top of `nginx.conf`:
+
+```nginx
+load_module modules/ngx_http_geoip2_module.so;
+```
+
+Skip this if the module is compiled into NGINX.
+
+---
+
+# Step 4: Configure GeoIP
+
+Inside the `http {}` block:
+
+```nginx
+geoip2 /etc/nginx/geoip/GeoLite2-Country.mmdb {
+    auto_reload 5m;
+
+    $geoip_country_code country iso_code;
+    $geoip_country_name country names en;
+}
+```
+
+---
+
+# Step 5: Configure Your Reverse Proxy
+
+```nginx
+server {
+    listen 80;
+    server_name _;
+
+    location / {
+
+        # Allow only India
+        if ($geoip_country_code != "IN") {
+            return 403;
+        }
+
+        proxy_pass http://127.0.0.1:8012;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+---
+
+# Step 6: Test the Configuration
+
+```bash
+sudo nginx -t
+```
+
+Expected:
+
+```text
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+```
+
+Reload:
+
+```bash
+sudo systemctl reload nginx
+```
+
+---
+
+# Step 7: Verify the Client IP
+
+Temporarily add:
+
+```nginx
+add_header X-Country $geoip_country_code always;
+```
+
+Example:
+
+```nginx
+location / {
+
+    add_header X-Country $geoip_country_code always;
+
+    proxy_pass http://127.0.0.1:8012;
+
+    proxy_set_header X-Real-IP $remote_addr;
+}
+```
+
+Then:
+
+```bash
+curl -I http://YOUR_EC2_IP
+```
+
+You'll see:
+
+```text
+HTTP/1.1 200 OK
+X-Country: IN
+```
+
+---
+
+# Step 8: Test Country Blocking
+
+To verify the rules:
+
+* Access from an Indian IP → `200 OK`
+* Access from a blocked country → `403 Forbidden`
+
+If you don't have access to IPs in different countries, you can temporarily change the rule to block India:
+
+```nginx
+if ($geoip_country_code == "IN") {
+    return 403;
+}
+```
+
+You should immediately receive:
+
+```text
+HTTP/1.1 403 Forbidden
+```
+
+Then revert the rule.
+
+---
+
+# Step 9: Docker Compose
+
+No changes are required to your application container:
+
+```yaml
+app:
+  ports:
+    - "8012:8012"
+```
+
+NGINX will continue to proxy to:
+
+```text
+127.0.0.1:8012
+```
+
+exactly as before.
+
+---
+
+# Production Recommendation
+
+For production, instead of using `if` inside `location`, use `map` in the `http {}` block:
+
+```nginx
+geoip2 /etc/nginx/geoip/GeoLite2-Country.mmdb {
+    $geoip_country_code country iso_code;
+}
+
+map $geoip_country_code $allow_country {
+    default 0;
+    IN 1;
+}
+```
+
+Then in your server block:
+
+```nginx
+server {
+    listen 80;
+
+    if ($allow_country = 0) {
+        return 403;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:8012;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+```
+
+This approach is cleaner, scales well to multiple countries, and avoids using `if` inside `location`.
+
+---
+
+## Before proceeding, check your NGINX installation
+
+Run these commands on your EC2 instance:
+
+```bash
+nginx -V
+```
+
+and
+
+```bash
+cat /etc/os-release
+```
+
+Share the output, and I can tell you:
+
+* whether the GeoIP2 module is already available,
+* the exact package (if any) to install for your Linux distribution,
+* and the minimal configuration changes needed for your environment.
+
