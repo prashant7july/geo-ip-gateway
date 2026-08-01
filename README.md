@@ -191,7 +191,7 @@ Docker App :8012
 
 ---
 
-# Option 2 (Recommended): Your Architecture
+# Option 2: Your Architecture
 
 ```
 Internet
