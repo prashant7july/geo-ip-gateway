@@ -27,7 +27,8 @@ RUN mkdir -p /etc/openresty/geoip
 COPY GeoLite2-Country.mmdb /etc/openresty/geoip/GeoLite2-Country.mmdb
 
 # Copy configuration
-COPY nginx.conf /usr/local/openresty/nginx/conf/nginx.conf
+# COPY nginx.conf /usr/local/openresty/nginx/conf/nginx.conf
+COPY nginx-gateway.conf /usr/local/openresty/nginx/conf/nginx.conf
 COPY lua/ /etc/openresty/lua/
 
 EXPOSE 8080
